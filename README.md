@@ -2,6 +2,9 @@
 
 An automated fishing bot for the game Pixel Blade that uses computer vision to detect fishing UI elements and automate the fishing process.
 
+Everything is open source! Feel free to fork and modify as you see fit if you want to customize it for your needs or if its not good enough for you.
+For non programmers, there are instructions on how to edit the bot in the code in the green text.
+
 ## Features
 
 - **Computer Vision Detection**: Uses OpenCV to detect fishing UI circles and timing

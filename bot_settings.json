@@ -1,0 +1,15 @@
+{
+  "fishing_key": "e",
+  "key_modifiers": [],
+  "discord_webhook": "",
+  "send_loot_colors": {
+    "red": true,
+    "yellow": true,
+    "blue": true,
+    "purple": true,
+    "grey": false
+  },
+  "always_on_top": true,
+  "anti_stuck": true,
+  "total_fishes": 0
+}

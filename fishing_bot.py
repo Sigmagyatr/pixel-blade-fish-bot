@@ -59,41 +59,219 @@ class PixelBladeFishingBot:
         return img
     
     def detect_fishing_ui(self, image: np.ndarray) -> bool:
-        """Detect if fishing UI is present by looking for circular patterns and colors"""
+        """Enhanced detection for Pixel Blade fishing circles - works even with overlapping windows"""
+        hsv = cv2.cvtColor(image, cv2.COLOR_BGR2HSV)
         gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+        
+        # Method 1: Enhanced light blue outer circle detection
+        # Multiple blue ranges to handle different lighting conditions
+        blue_ranges = [
+            ([80, 80, 180], [120, 255, 255]),  # Light blue 1
+            ([90, 100, 200], [110, 255, 255]), # Light blue 2 (original)
+            ([70, 60, 160], [100, 240, 240])   # Light blue 3 (darker)
+        ]
+        
+        for lower_blue, upper_blue in blue_ranges:
+            lower = np.array(lower_blue)
+            upper = np.array(upper_blue)
+            blue_mask = cv2.inRange(hsv, lower, upper)
+            
+            # Find blue circular regions
+            blue_contours, _ = cv2.findContours(blue_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+            
+            for contour in blue_contours:
+                area = cv2.contourArea(contour)
+                if area > 300:  # Slightly lower minimum area for better detection
+                    # Check if contour is circular (more lenient for pixelated circles)
+                    perimeter = cv2.arcLength(contour, True)
+                    if perimeter > 0:
+                        circularity = 4 * np.pi * area / (perimeter * perimeter)
+                        if circularity > 0.3:  # Even more lenient threshold
+                            # Additional check: look for thick border pattern
+                            if self.has_thick_border_pattern(image, contour):
+                                return True
+        
+        # Method 2: Look for "9x" or "10x" text (final circle indicator)
+        # Use multiple methods for text detection
+        if self.detect_multiplier_text(gray):
+            return True
+        
+        # Method 3: Template matching for known patterns
+        if self.template_match_fishing_ui(image):
+            return True
+        
+        return False
+    
+    def has_thick_border_pattern(self, image: np.ndarray, contour) -> bool:
+        """Check if contour has thick border pattern typical of fishing UI"""
+        x, y, w, h = cv2.boundingRect(contour)
+        
+        # Extract region
+        margin = 5
+        x1, y1 = max(0, x - margin), max(0, y - margin)
+        x2, y2 = min(image.shape[1], x + w + margin), min(image.shape[0], y + h + margin)
+        
+        region = image[y1:y2, x1:x2]
+        if region.size == 0:
+            return False
+        
+        # Check for thick border pattern
+        gray = cv2.cvtColor(region, cv2.COLOR_BGR2GRAY)
+        edges = cv2.Canny(gray, 50, 150)
+        
+        # Look for concentric circle patterns
+        contours, _ = cv2.findContours(edges, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+        
+        # Count circular contours
+        circular_count = 0
+        for cnt in contours:
+            area = cv2.contourArea(cnt)
+            if area > 50:
+                perimeter = cv2.arcLength(cnt, True)
+                if perimeter > 0:
+                    circularity = 4 * np.pi * area / (perimeter * perimeter)
+                    if circularity > 0.2:  # Very lenient for pixelated UI
+                        circular_count += 1
+        
+        # If we found multiple circular patterns, likely fishing UI
+        return circular_count >= 2
+    
+    def detect_multiplier_text(self, gray: np.ndarray) -> bool:
+        """Detect '9x' or '10x' text patterns"""
+        # Apply adaptive threshold for better text detection
+        binary = cv2.adaptiveThreshold(gray, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY, 11, 2)
+        
+        # Look for text patterns
+        contours, _ = cv2.findContours(binary, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+        
+        for contour in contours:
+            x, y, w, h = cv2.boundingRect(contour)
+            if 15 < w < 80 and 15 < h < 80:  # Reasonable text size
+                # Extract region and check for 'x' character pattern
+                roi = binary[y:y+h, x:x+w]
+                if self.detect_x_pattern(roi):
+                    return True
+        
+        return False
+    
+    def template_match_fishing_ui(self, image: np.ndarray) -> bool:
+        """Template matching for known fishing UI patterns"""
+        # Simple heuristic: look for blue circular regions with appropriate size ratios
         hsv = cv2.cvtColor(image, cv2.COLOR_BGR2HSV)
         
-        # Apply Gaussian blur to reduce noise
-        blurred = cv2.GaussianBlur(gray, (9, 9), 2)
+        # Look for blue regions
+        lower_blue = np.array([80, 60, 160])
+        upper_blue = np.array([120, 255, 255])
+        blue_mask = cv2.inRange(hsv, lower_blue, upper_blue)
         
-        # Detect circles with multiple parameter sets for different sizes
-        all_circles = []
+        # Find regions
+        contours, _ = cv2.findContours(blue_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
         
-        # Use radius ranges from config
-        for min_r, max_r in self.radius_ranges:
-            circles = cv2.HoughCircles(
-                blurred,
-                cv2.HOUGH_GRADIENT,
-                dp=1,
-                minDist=30,
-                param1=50,
-                param2=25,  # Lower threshold for more sensitive detection
-                minRadius=min_r,
-                maxRadius=max_r
-            )
-            
-            if circles is not None:
-                circles = np.round(circles[0, :]).astype("int")
-                all_circles.extend(circles)
+        for contour in contours:
+            area = cv2.contourArea(contour)
+            # Check for typical fishing UI size (50x50 to 200x200 pixels)
+            if 2500 < area < 40000:
+                # Check aspect ratio (should be roughly circular/square)
+                x, y, w, h = cv2.boundingRect(contour)
+                aspect_ratio = w / h
+                if 0.7 < aspect_ratio < 1.3:  # Roughly square/circular
+                    return True
         
-        if len(all_circles) == 0:
+        return False
+    
+    def detect_x_pattern(self, roi: np.ndarray) -> bool:
+        """Detect 'x' character pattern in ROI"""
+        # Simple heuristic for 'x' detection
+        # Look for diagonal lines crossing
+        h, w = roi.shape
+        if h < 10 or w < 10:
             return False
+        
+        # Check for diagonal patterns
+        diagonal1 = np.trace(roi)
+        diagonal2 = np.trace(np.fliplr(roi))
+        
+        # If both diagonals have significant white pixels, likely an 'x'
+        return diagonal1 > 50 and diagonal2 > 50
+    
+    def detect_loot(self, image: np.ndarray) -> tuple:
+        """Detect loot text and return (found, rarity, position)"""
+        hsv = cv2.cvtColor(image, cv2.COLOR_BGR2HSV)
+        
+        # Filter out "luck: x%" text first
+        luck_mask = self.create_luck_filter_mask(image)
+        
+        # Define color ranges for different loot rarities
+        loot_colors = {
+            'Vaulted(Red)': ([0, 150, 100], [10, 255, 255]),
+            'Legendary(Yellow)': ([20, 150, 100], [30, 255, 255]), 
+            'Rare(Blue)': ([100, 150, 100], [130, 255, 255]),
+            'Epic(Purple)': ([130, 150, 100], [170, 255, 255]),
+            'Common(Grey)': ([0, 0, 150], [180, 30, 255])
+        }
+        
+        for rarity_name, (lower, upper) in loot_colors.items():
+            lower = np.array(lower)
+            upper = np.array(upper)
+            mask = cv2.inRange(hsv, lower, upper)
             
-        # Check if we found circles that look like fishing UI
-        for (x, y, r) in all_circles:
-            if self.validate_fishing_circle(image, x, y, r):
-                return True
-                
+            # Apply luck filter (remove luck text regions)
+            mask = cv2.bitwise_and(mask, cv2.bitwise_not(luck_mask))
+            
+            # Find text regions
+            contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+            
+            for contour in contours:
+                area = cv2.contourArea(contour)
+                if area > 200:  # Minimum text area
+                    x, y, w, h = cv2.boundingRect(contour)
+                    # Check aspect ratio for text
+                    aspect_ratio = w / h
+                    if 0.5 < aspect_ratio < 5:  # Reasonable text aspect ratio
+                        return True, rarity_name, (x, y, w, h)
+        
+        return False, None, None
+    
+    def create_luck_filter_mask(self, image: np.ndarray) -> np.ndarray:
+        """Create mask to filter out 'luck: x%' text"""
+        gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+        
+        # Use template matching or OCR-like approach for "luck:" text
+        # Simple approach: look for colon pattern followed by % 
+        _, binary = cv2.threshold(gray, 200, 255, cv2.THRESH_BINARY)
+        
+        # Find text contours that might be "luck: x%"
+        contours, _ = cv2.findContours(binary, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+        
+        luck_mask = np.zeros(gray.shape, dtype=np.uint8)
+        for contour in contours:
+            x, y, w, h = cv2.boundingRect(contour)
+            # Check if this could be luck text by size and position
+            if w > 50 and h > 15 and h < 30:  # Typical luck text dimensions
+                # Check for % symbol (simple heuristic)
+                roi = gray[y:y+h, x:x+w]
+                if np.any(roi == 255):  # Has white pixels (text)
+                    luck_mask[y:y+h, x:x+w] = 255
+        
+        return luck_mask
+    
+    def anti_stuck_check(self, timeout=5.0):
+        """Anti-stuck mechanism - spam E if no fishing UI found"""
+        start_time = time.time()
+        
+        while time.time() - start_time < timeout:
+            image = self.capture_screen()
+            if self.detect_fishing_ui(image):
+                return True  # Found fishing UI, no need to spam
+            
+            time.sleep(0.5)
+        
+        # No fishing UI found for timeout period, spam E
+        logger.info("Anti-stuck activated: No fishing UI detected, spamming E key")
+        for _ in range(10):  # Spam 10 times
+            self.press_fishing_key()
+            time.sleep(0.1)
+        
         return False
     
     def validate_fishing_circle(self, image: np.ndarray, x: int, y: int, r: int) -> bool:
@@ -106,16 +284,6 @@ class PixelBladeFishingBot:
         circle_region = image[y1:y2, x1:x2]
         if circle_region.size == 0:
             return False
-            
-        # Check for typical fishing UI characteristics
-        gray_circle = cv2.cvtColor(circle_region, cv2.COLOR_BGR2GRAY)
-        
-        # Look for concentric circles (inner and outer)
-        edges = cv2.Canny(gray_circle, 50, 150)
-        contours, _ = cv2.findContours(edges, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-        
-        # Filter for circular contours
-        circular_contours = []
         for contour in contours:
             area = cv2.contourArea(contour)
             if area > 100:  # Minimum area threshold
