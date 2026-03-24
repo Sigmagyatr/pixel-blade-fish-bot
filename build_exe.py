@@ -22,14 +22,28 @@ def build_executable():
     """Build the executable with no console"""
     print("Building executable with no console...")
     
-    # Build command - fixed icon handling
+    # Check which main file exists
+    main_file = None
+    if os.path.exists("main.pyw"):
+        main_file = "main.pyw"
+    elif os.path.exists("bot_gui.py"):
+        main_file = "bot_gui.py"
+    else:
+        print("Error: No main GUI file found (main.pyw or bot_gui.py)")
+        return False
+    
+    print(f"Using main file: {main_file}")
+    
+    # Build command - fixed icon handling and hidden imports
     cmd = [
         sys.executable, "-m", "PyInstaller",
         "--noconsole",
         "--onefile",
         "--windowed", 
         "--name=PixelBladeFishingBot",
-        "main.pyw"
+        "--hidden-import=requests",
+        "--hidden-import=PIL._tkinter_finder",
+        main_file
     ]
     
     # Add icon if it exists

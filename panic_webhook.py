@@ -5,10 +5,17 @@ Sends Discord notifications when fishing UI not detected
 
 import time
 import logging
-import requests
 from typing import Dict, Optional
 
 logger = logging.getLogger(__name__)
+
+# Try to import requests, but handle case where it's not available
+try:
+    import requests
+    REQUESTS_AVAILABLE = True
+except ImportError:
+    REQUESTS_AVAILABLE = False
+    logger.warning("requests module not available - Discord notifications disabled")
 
 class PanicWebhookSystem:
     def __init__(self):
@@ -22,9 +29,12 @@ class PanicWebhookSystem:
     def configure(self, webhook_url: str, enabled: bool):
         """Configure panic webhook settings"""
         self.webhook_url = webhook_url
-        self.enabled = enabled
+        self.enabled = enabled and REQUESTS_AVAILABLE
         self.consecutive_failures = 0
         self.last_panic_time = 0
+        
+        if not REQUESTS_AVAILABLE and enabled:
+            logger.warning("Cannot enable panic webhook - requests module not available")
     
     def check_fishing_status(self, fishing_detected: bool):
         """Check fishing status and send panic if needed"""
@@ -50,6 +60,10 @@ class PanicWebhookSystem:
     
     def send_panic_message(self):
         """Send panic webhook message"""
+        if not REQUESTS_AVAILABLE:
+            logger.warning("Cannot send panic webhook - requests module not available")
+            return
+            
         try:
             embed = {
                 "title": "🚨 FISHING BOT PANIC ALERT",
@@ -98,6 +112,7 @@ class PanicWebhookSystem:
         return {
             'enabled': self.enabled,
             'webhook_configured': bool(self.webhook_url),
+            'requests_available': REQUESTS_AVAILABLE,
             'consecutive_failures': self.consecutive_failures,
             'last_panic_time': self.last_panic_time,
             'cooldown_remaining': max(0, self.panic_cooldown - (time.time() - self.last_panic_time))
