@@ -36,7 +36,7 @@ For non programmers, there are instructions on how to edit the bot in the code i
 ```bash
 pip install -r requirements.txt
 ```
-Alternative: Download the .exe file from [here]h(https://github.com/Waterlikesmacros/pixel-blade-fish-bot/releases/tag/Update)
+Alternative: Download the .exe file from [here](https://github.com/Waterlikesmacros/pixel-blade-fish-bot/releases/tag/Update)
 
 ## Usage
 
